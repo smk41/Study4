@@ -1,0 +1,646 @@
+---
+title: "MGSEM Study 4"
+author: "SMK"
+date: '`r Sys.Date()`'
+output: rmdformats::material
+---
+
+# Packages Used
+```{r warning=FALSE, message=FALSE}
+library(tidyverse)
+library(apaTables)
+library(gt)
+library(sjPlot)
+library(rmdformats)
+library(psych)
+library(gtsummary)
+library(ggplot2)
+library(ggthemes)
+library(ggcorrplot)
+library(extrafont)
+library(lavaan)
+library(tidySEM)
+library(reshape2)
+library(sjmisc)
+library(broom)
+library(knitr)
+
+```
+
+***
+# Dataset
+```{r}
+setwd("C:\\Users\\sarah\\Documents\\PhD\\All data files")
+originaldata <- read.csv("Study4AllData.csv",header =TRUE)
+```
+
+## Variables
+```{r}
+names(originaldata)
+```
+
+## Composite Variables
+```{r}
+Filler<-originaldata$F1 + originaldata$F2
+SAtotal<-originaldata$SA1 + originaldata$SA2 + originaldata$SA3 + originaldata$SA4
+LItotal<-originaldata$LI1 + originaldata$LI2 + originaldata$LI3 + originaldata$LI4 + originaldata$LI5 
+NRtotal<-originaldata$NR1 + originaldata$NR2 + originaldata$NR4 + originaldata$NR5
+MTtotal<-originaldata$MT1 + originaldata$MT2 + originaldata$MT3 + originaldata$MT4 + originaldata$MT5 + originaldata$MT6
+RMAtotal<-SAtotal+LItotal+NRtotal+MTtotal
+alldata<-cbind(originaldata, Filler, SAtotal, LItotal, NRtotal, MTtotal, RMAtotal)
+```
+
+***
+# Data Cleaning
+
+## Remove cases where duration is less than 4 minutes (240 seconds)
+```{r warning=FALSE, message=FALSE}
+cleandata <- alldata[!(alldata$Duration< 240),]
+```
+
+## Remove cases where residency is under 5 years
+```{r warning=FALSE, message=FALSE}
+cleaningdata<-cleandata[!(cleandata$Residency<5),]
+```
+
+## Remove cases with over 5% missing data
+```{r warning=FALSE, message=FALSE}
+cleanerdata<-cleaningdata
+percentmiss<- function(x){sum(is.na(x))/length(x)*100}
+missing= apply(cleanerdata, 1, percentmiss)
+table(missing)
+```
+
+```{r warning=FALSE, message=FALSE}
+nomissing<-cleanerdata[missing<5,]
+summary(is.na(nomissing))
+```
+```{r}
+fulldata<-nomissing
+medSexuality<-(median(fulldata$Sexuality, na.rm = TRUE))
+fulldata[is.na(fulldata$Sexuality), "Sexuality"]<-medSexuality
+summary(is.na(fulldata))
+```
+
+
+## Remove failed attention checks
+```{r}
+mean(fulldata$Filler, na.rm = TRUE)-3*sd(fulldata$Filler,na.rm = TRUE)
+mean(fulldata$RMAtotal)
+```
+
+```{r}
+completedata<-fulldata[!(fulldata$Filler<=6.5 & fulldata$RMAtotal<=40.7),]
+```
+
+## Remove multivariate outliers
+This analysis will ignore demographic columns (1:10), individual scale items , condition (18:43) and the RMA composite score (46) for an accurate mahalanobis distance score
+```{r}
+cleanestdata<-completedata
+mahal<- mahalanobis(cleanestdata[,c(11:17,45:48)], colMeans(cleanestdata[,c(11:17,45:48)],na.rm = TRUE),cov(cleanestdata[,c(11:17,45:48)], use = "pairwise.complete.obs"))
+cutoff<- qchisq(.999,ncol(cleanestdata[,c(11:17,45:48)]))
+cutoff
+summary(mahal<cutoff)
+```
+
+```{r}
+nooutliers<-cleanestdata[mahal<cutoff,]
+```
+
+## Data for analysis
+```{r}
+finaldata<-nooutliers
+write.csv(finaldata, "finaldata4.csv")
+```
+Final dataset contains 464 cases.
+
+
+```{r warning=FALSE, message=FALSE}
+data<-finaldata[,c(4:17,43, 45:49)]
+dataset<-data
+
+Condition1<- ifelse(finaldata$Condition=="Vignette(high)",1,0)
+data<-cbind(data,Condition1)
+
+maledata<-data[!(data$Gender>1),]
+femaledata<-data[(data$Gender==2),]
+lowcondition<-data[(data$Condition1==1),]
+highcondition<-data[(data$Condition1==0),]
+```
+
+# Factoring
+```{r}
+
+dataset$Gender= factor(dataset$Gender,levels = c(1,2,3,4,5,6),labels = c("male","female","trans male", "trans female", "genderqueer", "different identity"))
+dataset$Ethnicity= factor(dataset$Ethnicity,levels = c(1:14),labels = c("White Caucasian","White Mexican","White Sephardic Jew", "East Asian", "South Asian", "Middle Eastern", "Native American", "Latino/Hispanic", "Caribbean", "Black British", "African", "Black African American", "Mixed", "Other"))
+dataset$Sexuality= factor(dataset$Sexuality,levels = c(1,2,3,4,5),labels = c("heterosexual","bisexual","homosexual", "asexual", "other sexuality"))
+dataset$Vic_known= factor(dataset$Vic_known,levels = c(0,1,2,3),labels = c("prefer not to answer","don't know victim","friend or family member victim", "victim themself"))
+dataset$False_acc= factor(dataset$False_acc,levels = c(0,1,2,3),labels = c("prefer not to answer","don't know accused","friend or family member accused", "accused themself"))
+dataset$Verdict= factor(dataset$Verdict,levels = c(0,1),labels = c("Not Guilty", "Guilty"))
+dataset$Likert_verdict= factor(dataset$Likert_verdict,levels = c(1,2,3,4,5,6,7),labels = c("Completely unlikely", "Moderately unlikely", "Slightly unlikely", "Neither likely nor unlikely", "Slightly likely", "Moderately likely", "Completely likely"))
+dataset$Credibility= factor(dataset$Credibility,levels = c(1,2,3,4,5,6,7),labels = c("Completely incredible", "Moderately incredible", "Slightly incredible", "Neither credible nor incredible", "Slightly credible", "Moderately credible", "Completely credible"))
+dataset$Responsibility= factor(dataset$Responsibility,levels = c(1,2,3,4,5,6,7),labels = c("Completely unresponsible", "Moderately unresponsible", "Slightly unresponsible", "Neither responsible nor unresponsible", "Slightly responsible", "Moderately responsible", "Completely responsible"))
+dataset$Empathy= factor(dataset$Empathy,levels = c(1,2,3,4,5),labels = c("Not at all", "Slightly", "Moderately", "A lot", "Completely"))
+Sex= ifelse(dataset$Gender=="male", 1, 0)
+dataset<-cbind(dataset, Sex)
+dataset$Sex= factor(dataset$Sex,levels = c(0,1),labels = c("female","male"))
+```
+
+# Descriptives - IVs
+```{r}
+dataset %>%
+  dplyr::select(Gender, Ethnicity, Sexuality, Vic_known, False_acc )%>%
+  tbl_summary(
+    label= list(Gender ~ "Gender",Ethnicity ~ "Ethnicity", Sexuality~ "Sexual Orientation", Vic_known~ "Rape victim known", False_acc~ "False accusation known")) %>%
+  modify_caption("<div style='text-align: left;font-weight: bold'> Table 1.<br> Demographic Statistics</div>")
+```
+
+## Age
+```{r warning=FALSE, message=FALSE}
+dataset%>%
+  summarise(Variable= "Age",
+            Mean=mean(Age, na.rm = TRUE),
+            Median= median(Age, na.rm = TRUE),
+            SD= sd(Age, na.rm = TRUE))
+```
+## Victim known
+```{r warning=FALSE}
+v<-ggplot(data=dataset, aes(Vic_known))
+v+geom_histogram(stat="Count", aes(fill=as.factor(Vic_known))) +
+  theme_classic(base_size = 10,base_family = "Cambria") + 
+  labs( title = "Victim known", x = "Victim known", y= "Frequency" ) +
+   theme(axis.text.x = element_text(angle = 20, hjust=1)) +
+  scale_fill_brewer(palette="PRGn")
+```
+
+## False Allegations
+```{r warning=FALSE}
+f<-ggplot(data=dataset, aes(False_acc))
+f+ geom_histogram(stat="Count",  aes(fill=as.factor(False_acc))) +
+    theme_classic(base_size = 10,base_family = "Cambria") + 
+    labs( title = "False Accusation Known", x = "False Accusation Known", y=  "Frequency" ) +
+    theme(axis.text.x = element_text(angle = 20, hjust=1)) +
+    scale_fill_brewer(palette="YlGnBu")
+```
+## RMA total
+```{r warning=FALSE, message=FALSE}
+RMAlevels <- group_var(data$RMAtotal, size = 10, as.num = FALSE)
+levels(RMAlevels) <- group_labels(data$RMAtotal, size = 10)
+frq(RMAlevels)
+```
+
+```{r}
+rma<-ggplot(data=dataset, aes(RMAtotal))
+rma+geom_histogram(bins = 20, fill= "olivedrab3", colour="black") + 
+  theme_classic(base_size = 10,base_family = "Cambria") + 
+  labs( title = "Total Rape Myth Acceptance", x = "Total RMA scores", y= "Frequency" ) + 
+  scale_x_continuous(breaks = seq(20, 120, 10))
+ 
+```
+
+### Scale reliability
+```{r}
+scale<- finaldata[,c(18:21, 24:26, 28:32, 34:35, 37:41)]
+alpha(scale)
+```
+
+# Descriptives - DVs
+```{r}
+describe(data[,c(8:13,15:19)], fast=T)
+```
+## Verdict
+```{r warning=FALSE}
+Ver<-table(dataset$Verdict)
+Ver
+barplot(Ver, col= grey.colors(2), main = "Verdict")
+
+```
+
+## Likert Verdict
+```{r}
+table(dataset$Likert_verdict,dataset$Condition)
+transform(as.data.frame(table(dataset$Likert_verdict,dataset$Condition)), percent = Freq /228 * 100)
+```
+
+```{r warning=FALSE}
+dataset%>%
+  ggplot(aes(x=factor(Likert_verdict), fill=factor(Condition)))+ 
+  geom_bar(position="dodge")+
+  theme_classic(base_size = 10, base_family = "Cambria")+
+  theme(axis.text.x = element_text(angle = 30, hjust=1))+
+  labs(x="Continuous Verdict", y= "Frequency")
+```
+## Confidence
+```{r}
+Confidence_levels <- group_var(data$Confidence, size = 10, as.num = FALSE)
+levels(Confidence_levels) <- group_labels(data$Confidence, size = 10)
+table(Confidence_levels, dataset$Condition)
+```
+
+```{r}
+dataset%>%
+  ggplot(aes(x=factor(Confidence_levels), fill=factor(Condition)))+ 
+  geom_bar(position="dodge")+
+  theme_classic(base_size = 10, base_family = "Cambria")+
+  theme(axis.text.x = element_text(angle = 30, hjust=1))+
+  labs(x="Confidence", y= "Frequency")
+```
+## Sentence
+```{r}
+table(dataset$Sentence, dataset$Condition)
+transform(as.data.frame(table(dataset$Sentence,dataset$Condition)), percent = Freq /228 * 100)
+```
+```{r}
+data%>%
+  ggplot(aes(Sentence, fill=Condition))+ 
+  geom_bar(position="dodge")+
+  theme_classic(base_size = 10, base_family = "Cambria")+
+  labs(x="Recommended Sentence Length (in years)", y= "Frequency")
+```
+
+## Credibility
+```{r}
+table(dataset$Credibility, dataset$Condition)
+transform(as.data.frame(table(dataset$Credibility,dataset$Condition)), percent = Freq /228 * 100)
+```
+```{r}
+dataset%>%
+  ggplot(aes(x=factor(Credibility), fill=factor(Condition)))+ 
+  geom_bar(position="dodge")+
+  theme_classic(base_size = 10, base_family = "Cambria")+
+  theme(axis.text.x = element_text(angle = 40, hjust=1))+
+  labs(x="Credibility rating", y= "Frequency")
+```
+
+## Responsibility
+```{r}
+
+table(dataset$Responsibility, dataset$Condition)
+transform(as.data.frame(table(dataset$Responsibility,dataset$Condition)), percent = Freq /228 * 100)
+```
+```{r}
+dataset%>%
+  ggplot(aes(x=factor(Responsibility), fill=factor(Condition)))+ 
+  geom_bar(position="dodge")+
+  theme_classic(base_size = 10, base_family = "Cambria")+
+  theme(axis.text.x = element_text(angle = 45, hjust=1))+
+  labs(x="Responsibility rating", y= "Frequency")
+```
+## Empathy
+```{r}
+table(dataset$Empathy, dataset$Condition)
+transform(as.data.frame(table(dataset$Empathy,dataset$Condition)), percent = Freq /228 * 100)
+```
+
+```{r}
+dataset%>%
+  ggplot(aes(x=factor(Empathy), fill=factor(Condition)))+ 
+  geom_bar(position="dodge")+
+  theme_classic(base_size = 10, base_family = "Cambria")+
+  theme(axis.text.x = element_text(angle = 20, hjust=1))+
+  labs(x="Empathy rating", y= "Frequency")
+```
+# Correlation
+```{r warning=FALSE, message=FALSE}
+tab_corr(df,  p.numeric = TRUE, triangle = "lower")
+```
+
+# Mean Comparison
+Cohen's(1988) guidelines for interpreting effect sizes are:
+.01=small effect, .06=moderate effect, .14=large effect
+
+## Condition t-test
+```{r}
+options(scipen=999)
+contest<-lapply(data[,c(2,4:7,9:14,16:20)], function(x)t.test(x~dataset$Condition,var.eq=F, options(digits=5)))  
+contable<-map_df(contest, broom::tidy, .id="var")
+print.data.frame(contable)
+
+tvalues<-contable$statistic
+eta<-function(x){(x*x)/(x*x+(n-1))}
+n=469
+eta(tvalues)
+```
+```{r, warning=FALSE}
+sapply(lowcondition,sd)
+```
+
+```{r, warning=FALSE}
+sapply(highcondition,sd)
+```
+
+
+## Chi-square
+```{r}
+chitable1<-table(dataset$Condition,dataset$Verdict)
+chitable1
+chibarplot<- barplot(chitable1, beside=T, legend=T, ylab="Frequency", xlab="Verdict" ,  args.legend = list(x = "topleft",bty="n",inset=c(0.25,0)))
+chibarplot
+chisq.test(chitable1, correct = T)
+```
+
+
+
+```{r}
+chitable2<-table(dataset$Condition,dataset$Sex)
+barplot(chitable2, beside=T, legend=T)
+chisq.test(chitable2, correct = T)
+```
+
+## Gender t-test
+```{r}
+options(scipen=999)
+
+gentest<-lapply(data[,c(9:14,16:20)], function(x)t.test(x~dataset$Sex,var.eq=F, options(digits=5)))
+gentable<-map_df(gentest, broom::tidy, .id="var")
+print.data.frame(gentable)
+
+gtvalues<-gentable$statistic
+eta(gtvalues)
+```
+# Moderated-mediations
+
+Interactions
+```{r}
+df<-data
+
+Cond<-rec(df$Condition1, rec="0=-0.5;1=0.5")
+
+LI_c<-scale(df$LItotal)
+SA_c<-scale(df$SAtotal)
+NR_c<-scale(df$NRtotal)
+Cred_c<-scale(df$Credibility)
+Resp_c<-scale(df$Responsibility)
+Emp_c<-scale(df$Empathy)
+LI_Cond<-LI_c*Cond
+SA_Cond<-SA_c*Cond
+NR_Cond<-NR_c*Cond
+
+
+moddf<-cbind(df,Cond,LI_Cond, SA_Cond, NR_Cond, LI_c, SA_c, NR_c, Cred_c, Resp_c, Emp_c)
+
+```
+
+## Credibility
+```{r}
+mod1<-' 
+#a path
+Cred_c~a1*LI_c
+Cred_c~a2*Cond
+Cred_c~a3*LI_Cond
+
+#b path
+Verdict~b1*Cred_c
+
+#c prime path
+Verdict~cp*LI_c
+
+#Modmed index
+b1a3:=b1*a3
+
+#conditional indirect effects
+lowss:=a1+a3*-0.5
+highss:=a1+a3*0.5
+low:=a1*b1+b1a3*-0.5
+high:=a1*b1+b1a3*0.5'
+
+set.seed(1234)
+modmed1<-sem(mod1,data=moddf,se="bootstrap", bootstrap=5000, ordered = c("Verdict"), estimator= "DWLS")
+summary (modmed1, standardize = TRUE, rsquare = TRUE, fit.measures=TRUE)
+```
+
+```{r}
+parameterestimates(modmed1,boot.ci.type = "bca.simple", standardized = TRUE)%>%
+  kable()
+credmodmedtable<-parameterestimates(modmed1,boot.ci.type = "bca.simple", standardized = TRUE)%>%round_num(3)
+write.table(credmodmedtable, file = "credmodmedtable.txt", sep = ",", row.names = FALSE)
+```
+
+## Responsibility
+```{r}
+mod2 <- '
+#a path
+Resp_c~a1*SA_c
+Resp_c~a2*Cond
+Resp_c~a3*SA_Cond
+
+#b path
+Verdict~b1*Resp_c
+
+#c prime path
+Verdict~cp*SA_c
+
+#Modmed index
+b1a3:=b1*a3
+
+#conditional indirect effects
+lowss:=a1+a3*-0.5
+highss:=a1+a3*0.5
+low:=a1*b1+b1a3*-0.5
+high:=a1*b1+b1a3*0.5'
+
+set.seed(1234)
+modmed2<-sem(mod2,data=moddf,se="bootstrap", bootstrap=5000, ordered = c("Verdict"), estimator= "DWLS")
+summary (modmed2, standardize = TRUE, rsquare = TRUE, fit.measures=TRUE)
+```
+
+## Empathy
+```{r}
+mod3<-' 
+#a path
+Emp_c~a1*NR_c
+Emp_c~a2*Cond
+Emp_c~a3*NR_Cond
+
+#b path
+Verdict~b1*Emp_c
+
+#c prime path
+Verdict~cp*NR_c
+
+#Modmed index
+b1a3:=b1*a3
+
+#conditional indirect effects
+lowss:=a1+a3*-0.5
+highss:=a1+a3*0.5
+low:=a1*b1+b1a3*-0.5
+high:=a1*b1+b1a3*0.5'
+
+set.seed(1234)
+modmed3<-sem(mod3,data=moddf,se="bootstrap", bootstrap=5000, ordered = c("Verdict"), estimator= "DWLS")
+summary (modmed3, standardize = TRUE, rsquare = TRUE, fit.measures=TRUE)
+```
+
+# Metric Invariance
+
+```{r}
+semdata<-finaldata[,c(4,11:43)]
+Condition01<- ifelse(semdata$Condition=="Vignette(high)",1,0)
+semdata<-cbind(semdata,Condition01)
+semdata <- semdata %>% 
+   mutate(Scaleconf = Confidence / 10)
+```
+
+## Configural
+```{r warning=FALSE}
+MGSEMmodel<-'
+#measurement model
+LI=~1*LI1+LI2+LI3+LI4+LI5
+SA=~1*SA1+SA2+SA3+SA4 
+NR=~1*NR1+NR2+NR4+NR5 
+
+
+#Regression paths
+Verdict~Credibility+Responsibility+Empathy
+Credibility~Empathy
+
+Credibility~LI
+Responsibility~SA
+Empathy~NR
+
+
+#Covariance
+SA~~LI+NR
+LI~~NR
+
+'
+set.seed(1816)
+configmodel<-sem(MGSEMmodel, data=semdata, ordered = c("Verdict"), group= "Condition01")
+fitMeasures(configmodel,c("chisq", "df", "pvalue", "cfi","rmsea","srmr"))
+```
+## Metric
+```{r warning=FALSE}
+set.seed(1816)
+metricmodel<-sem(MGSEMmodel, data=semdata, ordered = c("Verdict"), group= "Condition01",  group.equal = "loadings")
+fitMeasures(metricmodel,c("chisq", "df", "pvalue", "cfi","rmsea","srmr"))
+```
+## Scalar
+```{r warning=FALSE}
+set.seed(1816)
+scalarmodel<-sem(MGSEMmodel, data=semdata, ordered = c("Verdict"), group= "Condition01",  group.equal =c("intercepts", "loadings"))
+fitMeasures(scalarmodel,c("chisq", "df", "pvalue", "cfi","rmsea","srmr"))
+```
+
+## Strict
+```{r warning=FALSE}
+set.seed(1816)
+strictmodel<-sem(MGSEMmodel, data=semdata, ordered = c("Verdict"), group= "Condition01",  group.equal =c("intercepts", "loadings", "residuals"))
+fitMeasures(strictmodel,c("chisq", "df", "pvalue", "cfi","rmsea","srmr"))
+```
+
+## Model comparison
+```{r warning=FALSE}
+lavTestLRT(configmodel, metricmodel, scalarmodel,strictmodel)
+```
+# CFA
+```{r}
+LIcfa<-'
+LI=~1*LI1+LI2+LI3+LI4+LI5'
+LIfit<-cfa(LIcfa, finaldata)
+summary(LIfit, fit.measures=T)
+```
+
+```{r}
+SAcfa<-'
+SA=~1*SA1+SA2+SA3+SA4'
+SAfit<-cfa(SAcfa, finaldata)
+summary(SAfit, fit.measures=T)
+```
+```{r}
+NRcfa<-'
+NR=~1*NR1+NR2+NR4+NR5'
+NRfit<-cfa(NRcfa, finaldata)
+summary(NRfit, fit.measures=T)
+```
+
+
+# MGSEM
+```{r warning=FALSE}
+MGSEMmodel<-'
+#measurement model
+LI=~1*LI1+LI2+LI3+LI4+LI5
+SA=~1*SA1+SA2+SA3+SA4 
+NR=~1*NR1+NR2+NR4+NR5 
+
+
+#Regression paths
+Verdict~c(b1,b2)*Credibility+c(d1,d2)*Responsibility+c(f1,f2)*Empathy
+Credibility~c(x1,x2)*Empathy
+
+Credibility~c(a1,a2)*LI
+Responsibility~c(c1,c2)*SA
+Empathy~c(e1,e2)*NR
+
+
+#Covariance
+SA~~LI+NR
+LI~~NR
+
+
+#Indirect paths
+indirectcred0 := a1*b1
+indirectcred1 := a2*b2
+indirectresp0 := c1*d1
+indirectresp1 := c2*d2
+indirectemp0 := e1*f1
+indirectemp1 := e2*f2
+
+'
+set.seed(1816)
+fitmodel<-sem(MGSEMmodel, data=semdata, ordered = c("Verdict"), group= "Condition01")
+summary(fitmodel, fit.measures=TRUE)
+parameterestimates(fitmodel,standardized = TRUE, ci=TRUE)
+modificationindices(fitmodel, sort=TRUE)
+```
+
+# Testing path differences
+```{r}
+MGSEMmodel1<-'
+#measurement model
+LI=~1*LI1+LI2+LI3+LI4+LI5
+SA=~1*SA1+SA2+SA3+SA4 
+NR=~1*NR1+NR2+NR4+NR5 
+
+
+#Regression paths
+Verdict~c(b1,b2)*Credibility+c(d1,d2)*Responsibility+c(f1,f2)*Empathy
+Credibility~c(x1,x2)*Empathy
+
+Credibility~c(a1,a2)*LI
+Responsibility~c(c1,c2)*SA
+Empathy~c(e1,e2)*NR
+
+
+#Covariance
+SA~~LI+NR
+LI~~NR
+
+
+#Indirect paths
+indirectcred0 := a1*b1
+indirectcred1 := a2*b2
+indirectresp0 := c1*d1
+indirectresp1 := c2*d2
+indirectemp0 := e1*f1
+indirectemp1 := e2*f2
+
+
+#Differences
+cred2ver:= b2-b1
+resp2ver:= d2-d1
+emp2ver:= f2-f1
+LI2cred:= a2-a1
+SA2resp:= c2-c1
+NR2emp:= e2-e1
+emp2cred:= x2-x1
+indirectcreddiff:=indirectcred1-indirectcred0
+indirectrespdiff:=indirectresp1-indirectresp0
+indirectempdiff:=indirectemp1-indirectemp0
+'
+
+set.seed(1816)
+fitmodel1<-sem(MGSEMmodel1, data=semdata, ordered = c("Verdict"), group= "Condition01")
+summary(fitmodel1, fit.measures=TRUE)
+```
+
